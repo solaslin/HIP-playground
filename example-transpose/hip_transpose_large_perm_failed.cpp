@@ -6,9 +6,9 @@
 
 // Permute only helps when exchanging data in one wave.......
 
-const static int width = 4;
-const static int height = 4; // single matrix is 16x16
-const static int tile_dim = 4;
+const static int width = 16;
+const static int height = 16; // single matrix is 16x16
+const static int tile_dim = 16;
 // const static int batches = 10; // how many 64x64
 
 // row major......
@@ -52,49 +52,42 @@ __global__ void transpose_perm_kernel(float *in, float *out, int width,
   int y_tile_index = blockIdx.y * tile_dim;
   int col_index = (y_tile_index * width) + threadIdx.x; // the start index of this col in this batch
 
-  // float registers[tile_dim];  // each thread reads a column = tile dim elements
-  float r[4];  // each thread reads a column = tile dim elements
+  float registers[tile_dim];  // each thread reads a column = tile dim elements
 
   // local index in single transpose matrix
   int trans_row_index = threadIdx.x;
   const int matrixStrides = width * height;
   while(col_index < matrixStrides * batch)
   {
-    r[0] = in[col_index];
-    r[1] = in[col_index + width * 1];
-    r[2] = in[col_index + width * 2];
-    r[3] = in[col_index + width * 3];
+    // r[0] = in[col_index];
+    // r[1] = in[col_index + width * 1];
+    // r[2] = in[col_index + width * 2];
+    // r[3] = in[col_index + width * 3];
 
-    r[0] = __hip_ds_bpermutef(0, r[threadIdx.x]);
-    r[1] = __hip_ds_bpermutef(4, r[threadIdx.x]);
-    r[2] = __hip_ds_bpermutef(8, r[threadIdx.x]);
-    r[3] = __hip_ds_bpermutef(12, r[threadIdx.x]);
+    // r[0] = __hip_ds_bpermutef(0, r[threadIdx.x]);
+    // r[1] = __hip_ds_bpermutef(4, r[threadIdx.x]);
+    // r[2] = __hip_ds_bpermutef(8, r[threadIdx.x]);
+    // r[3] = __hip_ds_bpermutef(12, r[threadIdx.x]);
 
-    out[col_index] = r[0];
-    out[col_index + width * 1] = r[1];
-    out[col_index + width * 2] = r[2];
-    out[col_index + width * 3] = r[3];
+    // out[col_index] = r[0];
+    // out[col_index + width * 1] = r[1];
+    // out[col_index + width * 2] = r[2];
+    // out[col_index + width * 3] = r[3];
 
-// #pragma unroll
-//     for(size_t elemID = 0; elemID < tile_dim; ++elemID)
-//     {
-//       registers[elemID] = in[col_index + (width * elemID)];
-//       out[col_index + (width * elemID)] = registers[elemID];
-//     }
+#pragma unroll
+    for(size_t elemID = 0; elemID < tile_dim; ++elemID)
+    {
+      registers[elemID] = in[col_index + (width * elemID)];
+      out[col_index + (width * elemID)] = registers[elemID];
+    }
 
-//    if(threadIdx.x == 0)
-//    {
-// #pragma unroll
-//       for(size_t elemID = 0; elemID < tile_dim; ++elemID)
-//       {
-//         registers[elemID] = __hip_ds_bpermutef(elemID*4, registers[trans_row_index]);
-//       }
+#pragma unroll
+    for(size_t elemID = 0; elemID < tile_dim; ++elemID)
+    {
+      float other = __hip_ds_bpermutef(elemID*4, registers[trans_row_index]);
+      out[col_index + (width * elemID)] = other;
+    }
 
-//       for(size_t elemID = 0; elemID < tile_dim; ++elemID)
-//       {
-//         out[col_index + (width * elemID)] = registers[elemID];
-//       }
-//    }
     col_index += matrixStrides;
   }
 
@@ -165,7 +158,7 @@ int main() {
 
   printf("Setup complete. Launching kernel \n");
   int block_x = width / tile_dim;
-  int block_y = (height * batch) / tile_dim;
+  int block_y = height / tile_dim;
 
   hipLaunchKernelGGL(transpose_perm_kernel, dim3(block_x, block_y),
                       dim3(tile_dim, 1), 0, 0, d_in, d_out, width,
